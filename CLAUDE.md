@@ -1,12 +1,32 @@
-# CLAUDE.md — Fogline
+# CLAUDE.md
 
-Operating context for AI agents working on this codebase. Read it fully before proposing or writing code. It is the source of truth for scope and constraints.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+<!-- Internal title: Fogline — operating context for AI agents. Read fully before proposing or writing code. Source of truth for scope and constraints. -->
 
 ## What Fogline is
 
 Cross-platform SwiftUI app (iOS 17+ / macOS 14+). The user drops an arbitrary pin on a satellite map; the app fetches terrain elevation around it, computes the **viewshed** (every surface point with an unobstructed line of sight from the pin, within an adjustable visibility range), and paints everything occluded or out of range as fog-of-war. The core engine is a **topographic raycaster over a heightfield** — 2.5D (`z = f(x,y)`, no caves/overhangs), which reduces line-of-sight to walking a 1D terrain profile and comparing elevation angles. That simplification is load-bearing; lean on it.
 
 It is a stylistic **map viewer / desk tool**, not a field app.
+
+## Build & Test
+
+No Makefile or scripts — use xcodebuild or Xcode directly.
+
+```bash
+# Build (Debug)
+xcodebuild -project FogLiner.xcodeproj -scheme FogLiner -configuration Debug build
+
+# Run all tests (macOS)
+xcodebuild -project FogLiner.xcodeproj -scheme FogLiner -destination 'platform=macOS' test
+
+# Run a single test suite
+xcodebuild -project FogLiner.xcodeproj -scheme FogLiner -destination 'platform=macOS' \
+  -only-testing:FogLinerTests/TileKeyTests test
+```
+
+Tests use Apple's **`Testing`** framework (not XCTest). Live network tests are tagged `@Tag.network` and skipped by default — they hit the real AWS bucket.
 
 ## Two governing principles (do not violate)
 
@@ -44,6 +64,8 @@ A hard wall separates the compute engine from anything Apple-specific.
 - **SwiftUI layer** — the representable, the controls, an `@Observable` model holding observer, range, eye height, and current mask.
 
 **Invariant:** if a fix requires importing MapKit/UIKit/AppKit/CoreLocation into the engine, the design is wrong. Surface the trade-off instead of crossing the wall.
+
+**Current state (as of mid-2026):** `TileSource<Payload>`, `HeightField` (Terrarium decode + bilinear sample), and `ContentView` (satellite map display) are implemented. `ViewshedEngine`, `VisibilityMask`, and `ViewshedOverlay` + renderer are not yet built.
 
 ## Coordinate frames — keep two, never mix
 
