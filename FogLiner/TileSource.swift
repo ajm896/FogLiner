@@ -9,7 +9,7 @@ import Foundation
 import ImageIO
 import Playgrounds
 
-nonisolated struct TileKey: Hashable, Sendable, Codable {
+nonisolated struct TileKey: Hashable, Sendable {
     let z, x, y: Int
 
     init(_ z: Int, _ x: Int, _ y: Int) {
@@ -84,14 +84,5 @@ enum ZoomDir {
     case Out
 }
 
-#Playground {
-    let testTile = TileKey(15, 8831, 12928)
-    let tileSource = TileSource<HeightField>(
-        decode: { data, key in
-            try HeightField(key: key, from: data)
-        }
-    )
-    let image = try await tileSource.tile(testTile)
-}
 
 // 15/8831/12927

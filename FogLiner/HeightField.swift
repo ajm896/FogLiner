@@ -11,7 +11,7 @@ import ImageIO
 import Playgrounds
 import SwiftUI
 
-nonisolated struct HeightField: Codable {
+nonisolated struct HeightField {
     private let key: TileKey
     private let tileHeightMap: [Double]
 
@@ -83,10 +83,3 @@ nonisolated struct HeightField: Codable {
     }
 }
 
-#Playground {
-    let Tiles = TileSource<HeightField> { data, key in
-        try HeightField(key: key, from: data)
-    }
-    let testTileKey = TileKey(15, 8831, 12927)
-    let tile = try await Tiles.tile(testTileKey)
-}

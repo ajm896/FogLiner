@@ -24,7 +24,8 @@ struct ViewshedParameters {
 ///   - eastMeters: east offset from the grid origin, in metres
 ///   - northMeters: north offset from the grid origin, in metres
 /// - Returns: elevation in metres, or `nil` if the point falls outside sampled data.
-typealias ElevationSampler = (_ eastMeters: Double, _ northMeters: Double) -> Double?
+typealias ElevationSampler = (_ eastMeters: Double, _ northMeters: Double) ->
+    Double?
 
 /// Pure-Swift viewshed engine. No Apple-framework imports.
 ///
