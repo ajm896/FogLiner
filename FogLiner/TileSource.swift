@@ -26,6 +26,31 @@ nonisolated struct TileKey: Hashable, Sendable {
         URL(string: "\(baseURL)\(toPath()).png")!
     }
 
+    /// The slippy-map tile at `zoom` containing (lat, lon).
+    /// Standard Web Mercator tile-cover math (same formula AWS terrarium and
+    /// every other slippy provider use for the x/y indices; AWS just orders
+    /// the path as {z}/{x}/{y}).
+    static func containing(lat: Double, lon: Double, zoom: Int) -> TileKey {
+        let n = Double(1 << zoom)
+        let xNorm = (lon + 180) / 360
+        let latRad = lat * .pi / 180
+        let yNorm = (1 - asinh(tan(latRad)) / .pi) / 2
+        let x = Int(xNorm * n)
+        let y = Int(yNorm * n)
+        return TileKey(zoom, min(max(x, 0), Int(n) - 1), min(max(y, 0), Int(n) - 1))
+    }
+
+    /// Fractional pixel position of (lat, lon) within this tile's 256x256 grid.
+    /// Not clamped to [0, 256) — callers near a tile edge clamp as needed.
+    func fractionalPixel(lat: Double, lon: Double, tileSize: Double = 256) -> (x: Double, y: Double) {
+        let n = Double(1 << z)
+        let xNorm = (lon + 180) / 360
+        let latRad = lat * .pi / 180
+        let yNorm = (1 - asinh(tan(latRad)) / .pi) / 2
+        let px = (xNorm * n - Double(x)) * tileSize
+        let py = (yNorm * n - Double(y)) * tileSize
+        return (px, py)
+    }
 }
 
 actor TileSource<Payload: Sendable> {

@@ -20,6 +20,34 @@ extension Tag { @Tag static var network: Self }
         let url = TileKey(1,2,3).toURL(with: "https://example.com/t/")
         #expect(url.absoluteString == "https://example.com/t/1/2/3.png")
     }
+
+    // Cross-checked against a from-scratch Python computation of the standard
+    // slippy-map formula; also matches the z14 x-index already used above.
+    @Test func containingMatchesColdMountainZ14Tile() {
+        let key = TileKey.containing(
+            lat: Fixtures.coldMountainLat, lon: Fixtures.coldMountainLon, zoom: 14)
+        #expect(key.z == 14)
+        #expect(key.x == 4421)
+        #expect(key.y == 6466)
+    }
+
+    @Test func containingClampsAtWorldEdges() {
+        let nw = TileKey.containing(lat: 89.9, lon: -180, zoom: 5)
+        #expect(nw.x == 0)
+        #expect(nw.y == 0)
+        let se = TileKey.containing(lat: -85, lon: 179.9, zoom: 5)
+        #expect(se.x == (1 << 5) - 1)
+        #expect(se.y == (1 << 5) - 1)
+    }
+
+    @Test func fractionalPixelIsWithinTileBounds() {
+        let key = TileKey.containing(
+            lat: Fixtures.coldMountainLat, lon: Fixtures.coldMountainLon, zoom: 14)
+        let (px, py) = key.fractionalPixel(
+            lat: Fixtures.coldMountainLat, lon: Fixtures.coldMountainLon)
+        #expect(px >= 0 && px < 256)
+        #expect(py >= 0 && py < 256)
+    }
 }
 
 @Suite struct DecodeTests {
@@ -47,6 +75,69 @@ extension Tag { @Tag static var network: Self }
         #expect(throws: (any Error).self) {
             _ = try HeightField(key: TileKey(0, 0, 0), from: Data("nope".utf8))
         }
+    }
+}
+
+@Suite struct BilinearGeoSampleTests {
+    // A flat tile should read back the same elevation everywhere, including
+    // fractional lat/lon that don't land exactly on a pixel.
+    @Test func flatTileIsConstantEverywhere() throws {
+        let key = TileKey(14, 4421, 6466)
+        let png = Fixtures.terrariumPNG(
+            elevations: [Double](repeating: 1000.0, count: 256 * 256), width: 256, height: 256)
+        let tile = try HeightField(key: key, from: png)
+
+        let (centerLat, centerLon) = key.centerLatLon()
+        #expect(abs(tile.elevation(atLat: centerLat, lon: centerLon) - 1000.0) < 0.01)
+
+        let (edgeLat, edgeLon) = key.latLon(px: 0.1, py: 0.1)
+        #expect(abs(tile.elevation(atLat: edgeLat, lon: edgeLon) - 1000.0) < 0.01)
+    }
+
+    // A left-to-right ramp interpolated at a fractional pixel should land
+    // between its two bracketing columns.
+    @Test func interpolatesBetweenNeighboringPixels() throws {
+        let key = TileKey(14, 4421, 6466)
+        var elev = [Double](repeating: 0, count: 256 * 256)
+        for row in 0..<256 { for col in 0..<256 { elev[row * 256 + col] = Double(col) * 10.0 } }
+        let png = Fixtures.terrariumPNG(elevations: elev, width: 256, height: 256)
+        let tile = try HeightField(key: key, from: png)
+
+        let (lat, lon) = key.latLon(px: 101.0, py: 128)
+        let sampled = tile.elevation(atLat: lat, lon: lon)
+        #expect(sampled > tile.elevation(col: 100, row: 128))
+        #expect(sampled < tile.elevation(col: 101, row: 128))
+    }
+
+    // Points right at (or past) a tile edge clamp to the tile's own edge
+    // pixels rather than reaching into a neighbor tile — the chosen v1 tradeoff.
+    @Test func clampsAtTileEdgeRatherThanExtrapolating() throws {
+        let key = TileKey(14, 4421, 6466)
+        var elev = [Double](repeating: 0, count: 256 * 256)
+        for row in 0..<256 { for col in 0..<256 { elev[row * 256 + col] = Double(col) * 10.0 } }
+        let png = Fixtures.terrariumPNG(elevations: elev, width: 256, height: 256)
+        let tile = try HeightField(key: key, from: png)
+
+        let (lat, lon) = key.latLon(px: 0, py: 128)
+        let sampled = tile.elevation(atLat: lat, lon: lon)
+        #expect(abs(sampled - tile.elevation(col: 0, row: 128)) < 0.01)
+    }
+}
+
+private extension TileKey {
+    /// Test-only inverse of `fractionalPixel`, for constructing lat/lon at a
+    /// known pixel position within this tile.
+    func latLon(px: Double, py: Double, tileSize: Double = 256) -> (lat: Double, lon: Double) {
+        let n = Double(1 << z)
+        let xNorm = (Double(x) + px / tileSize) / n
+        let yNorm = (Double(y) + py / tileSize) / n
+        let lon = xNorm * 360 - 180
+        let lat = atan(sinh(.pi * (1 - 2 * yNorm))) * 180 / .pi
+        return (lat, lon)
+    }
+
+    func centerLatLon() -> (lat: Double, lon: Double) {
+        latLon(px: 128, py: 128)
     }
 }
 
@@ -86,12 +177,18 @@ extension Tag { @Tag static var network: Self }
 }
 
 @Suite struct ColdMountainGate {
-    // THE M1 gate. Blocked on tile-cover math (lat/lon -> z/x/y) + bilinear geo-sampling.
-    @Test(.disabled("Needs tile-cover math + bilinear geo-sampling"))
-    func summitElevationWithinTolerance() {
-        // let h = try await dem.elevation(atLat: Fixtures.coldMountainLat,
-        //                                 lon: Fixtures.coldMountainLon)
-        // #expect(abs(h - Fixtures.coldMountainMeters) <= Fixtures.toleranceMeters)
+    // THE M1 gate. Hits the live S3 bucket — enable manually (same convention as
+    // liveTileDecodesToPlausibleElevations below).
+    @Test(.tags(.network), .disabled("hits the live S3 bucket — enable manually"))
+    func summitElevationWithinTolerance() async throws {
+        let source = TileSource<HeightField>(
+            cacheDir: Fixtures.makeTempDir(),
+            decode: { data, key in try HeightField(key: key, from: data) })
+        let key = TileKey.containing(
+            lat: Fixtures.coldMountainLat, lon: Fixtures.coldMountainLon, zoom: 14)
+        let tile = try await source.tile(key)
+        let h = tile.elevation(atLat: Fixtures.coldMountainLat, lon: Fixtures.coldMountainLon)
+        #expect(abs(h - Fixtures.coldMountainMeters) <= Fixtures.toleranceMeters)
     }
 
     // Live end-to-end smoke test. Tile coords hand-computed; pin exact band when cover-math lands.

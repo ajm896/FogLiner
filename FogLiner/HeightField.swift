@@ -24,6 +24,32 @@ nonisolated struct HeightField {
         tileHeightMap[row * width + col]
     }
 
+    /// Bilinearly-interpolated elevation at an arbitrary (lat, lon) inside this tile.
+    ///
+    /// Pixel position is derived from this tile's own `key`, so no external tile-cover
+    /// lookup is needed. Points outside the tile's pixel bounds (including points near
+    /// an edge whose interpolation would reach into a neighboring tile) are clamped to
+    /// the tile's own edge pixels rather than fetching a neighbor — a small, deliberate
+    /// v1 approximation confined to the last fraction of a pixel at tile boundaries.
+    func elevation(atLat lat: Double, lon: Double) -> Double {
+        let (px, py) = key.fractionalPixel(lat: lat, lon: lon, tileSize: Double(width))
+        let maxCol = Double(width - 1)
+        let maxRow = Double(height - 1)
+        let x = min(max(px - 0.5, 0), maxCol)
+        let y = min(max(py - 0.5, 0), maxRow)
+
+        let col0 = Int(x)
+        let row0 = Int(y)
+        let col1 = min(col0 + 1, width - 1)
+        let row1 = min(row0 + 1, height - 1)
+        let fx = x - Double(col0)
+        let fy = y - Double(row0)
+
+        let top = elevation(col: col0, row: row0) * (1 - fx) + elevation(col: col1, row: row0) * fx
+        let bottom = elevation(col: col0, row: row1) * (1 - fx) + elevation(col: col1, row: row1) * fx
+        return top * (1 - fy) + bottom * fy
+    }
+
     enum DecodeError: Error {
         case notAnImage
         case contextCreationFailed
